@@ -1,102 +1,151 @@
-three.js
+Qt_three.js
 ========
-#### What this branch is about? ####
+#### 更新： ####
 
-This branch of the three.js includes changes and a new Canvas3DRenderer that allows it to run inside the QtQuick JavaScript environment and use the QtCanvas3D module for rendering. See https://qt.gitorious.org/qt/qtcanvas3d 
+在原项目基础上新增可用于Qt QML的第一人称相机控件FirstPersonControls.js。
 
-The ready built libraries are meant to be used with Qt 5.5 that contains the Canvas3D and necessary changes to the QtQuick JavaScript engine (support for TypedArrays etc.). To build three.js that works with Qt 5.4 dev branch you need to use the utils/build/build_qt_5_4.sh script to build a new library that includes the TypedArray wrappers and includes the correct version of Canvas3DRenderer for Qt 5.4 that matches the Canvas3D Technology Preview 2 API.
+#### 使用方法： ####
 
-#### JavaScript 3D library ####
-
-The aim of the project is to create a lightweight 3D library with a very low level of complexity — in other words, for dummies. The library provides &lt;canvas&gt;, &lt;svg&gt;, CSS3D, WebGL and Qt Canvas3D renderers.
-
-[Examples](http://threejs.org/) — [Documentation](http://threejs.org/docs/) — [Migrating](https://github.com/mrdoob/three.js/wiki/Migration) — [Help](http://stackoverflow.com/questions/tagged/three.js)
-
-
-### Usage with Qt Canvas3D ###
-
-Download the [library](https://github.com/tronlec/three.js/blob/master/build/three.js) and include it in your project's resource (.qrc) file along with the code that uses three.js, then include the three.js library to the JavaScript file that will use it.
-
-This QML code adds the Canvas3D as the only component to the QtQuick scene.
-
+main.qml:
 ```QML
-import QtQuick 2.0
-import QtCanvas3D 1.0
-import QtQuick.Controls 1.2
+import QtQuick 2.4
+import QtCanvas3D 1.1
+import QtQuick.Window 2.2
 
-import "code.js" as GLCode
+import "glcode.js" as GLCode
 
-Item {
-    id: mainview
-    width: 1280
-    height: 768
+Window {
+    title: qsTr("controls-firstpersoncontrols")
+    width: 640
+    height: 360
     visible: true
 
     Canvas3D {
         id: canvas3d
-        anchors.fill: parent
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        width: parent.width - 100
+
+        focus: true
 
         onInitializeGL: {
-            GLCode.initializeGL(canvas3d);
+            GLCode.initializeGL(canvas3d, eventSource);
         }
 
         onPaintGL: {
             GLCode.paintGL(canvas3d);
         }
-        
+
         onResizeGL: {
             GLCode.resizeGL(canvas3d);
         }
+
+        ControlEventSource {
+            id: eventSource
+            anchors.fill: parent
+            focus: true
+        }
     }
+
 }
 ```
 
-
-This code (place it in "code.js" file in your Qt resource file) creates a scene, then creates a camera, adds the camera and cube to the scene, creates a &lt;Canvas3D&gt; renderer.
-
+glcode.js:
 ```JavaScript
-	Qt.include("three.js")
+Qt.include("three.js")
+Qt.include("FirstPersonControls.js")
 
-	var camera, scene, renderer;
-	var geometry, material, mesh;
+var camera, scene, renderer;
+var controls = new Object;
+var clock = new THREE.Clock();
 
-	function initializeGL(canvas) {
+function initializeGL(canvas, eventSource) {
 
-		camera = new THREE.PerspectiveCamera( 75, canvas.width / canvas.height, 1, 10000 );
-		camera.position.z = 1000;
+    // scene
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xcce0ff);
+    scene.fog = new THREE.Fog(0xcce0ff, 50000, 300000); //增加雾化效果
 
-		scene = new THREE.Scene();
+    // camera
+    camera = new THREE.PerspectiveCamera(60, canvas.width / canvas.height, 500, 150000);
+    camera.position.z = -1;
+    camera.position.y = 10000;
+    scene.add( camera );
 
-		geometry = new THREE.BoxGeometry( 200, 200, 200 );
-		material = new THREE.MeshBasicMaterial( { color: 0xff0000, wireframe: true } );
+    //FirstPersonControl
+    controls = new THREE.FirstPersonControls(camera, eventSource);
+    controls.movementSpeed = 1000;
+    controls.lookSpeed = 0.2;
+    controls.lookVertical = true;
 
-		mesh = new THREE.Mesh( geometry, material );
-		scene.add( mesh );
+    // lights
+    var ambientLight = new THREE.AmbientLight( 0x5F9EA0 );
+    scene.add( ambientLight );
 
-		renderer = new THREE.Canvas3DRenderer( {canvas: canvas, devicePixelRatio: canvas.devicePixelRatio});
-		renderer.setSize( canvas.width, canvas.height );
-	}
+    var light, materials;
 
-	function paintGL(canvas) {
+    light = new THREE.DirectionalLight(0xdfebff, 1);
+    light.position.set(50, 200000, 100);
+    light.position.multiplyScalar(1.3);
 
-		mesh.rotation.x += 0.01;
-		mesh.rotation.y += 0.02;
+    light.castShadow = true;
 
-		renderer.render( scene, camera );
+    light.shadow.mapSize.width = 1024;
+    light.shadow.mapSize.height = 1024;
 
-	}
+    var d = 3000;
 
-	function resizeGL(canvas) {
+    light.shadow.camera.left = -d;
+    light.shadow.camera.right = d;
+    light.shadow.camera.top = d;
+    light.shadow.camera.bottom = -d;
 
-		if (camera === undefined) return;
+    light.shadow.camera.far = 150000;
 
-		camera.aspect = canvas.width / canvas.height;
-		camera.updateProjectionMatrix();
+    scene.add(light);
 
-		renderer.setSize( canvas.width, canvas.height );
+    // ground
+    var loader = new THREE.TextureLoader();
+    var groundTexture = loader.load('qrc:/textures/terrain/grasslight-big.jpg');
+    groundTexture.wrapS = groundTexture.wrapT = THREE.RepeatWrapping;
+    groundTexture.repeat.set(25, 25);
+    groundTexture.anisotropy = 16;
 
-	}
+    var groundMaterial = new THREE.MeshLambertMaterial({
+                                                           map: groundTexture
+                                                       });
+
+    var mesh = new THREE.Mesh(new THREE.PlaneBufferGeometry(400000, 400000), groundMaterial);
+    mesh.position.y = -2000;
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+
+
+    // renderer
+    renderer = new THREE.Canvas3DRenderer(
+                { canvas: canvas, antialias: true, devicePixelRatio: canvas.devicePixelRatio });
+    renderer.setSize( canvas.width, canvas.height );
+    renderer.setClearColor( scene.fog.color );
+
+    renderer.gammaInput = true;
+    renderer.gammaOutput = true;
+
+    renderer.shadowMap.enabled = true;
+}
+
+function resizeGL(canvas) {
+    camera.aspect = canvas.width / canvas.height;
+    camera.updateProjectionMatrix();
+
+    renderer.setPixelRatio(canvas.devicePixelRatio);
+    renderer.setSize( canvas.width, canvas.height );
+
+    controls.handleResize();
+}
+
+function paintGL(canvas) {
+    controls.update(clock.getDelta());
+    renderer.render( scene, camera );
+}
 ```
-If everything went well you should see [this](http://jsfiddle.net/Gy4w7/).
-
-For more examples on how to port content from HTML to run inside Qt Quick, see the /qt-examples folder that includes some of the three.js examples ported over to Qt Quick.
